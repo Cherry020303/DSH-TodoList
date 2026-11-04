@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "TodoList",
-    "description": "Organize todos as soft pastel notes with titles, locations, date-time details, and a sidebar pending count."
+    "description": "Organize todos as soft pastel notes with titles, locations, date-time details, time-range filters, and a sidebar pending count."
   }
 }

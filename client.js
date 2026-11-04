@@ -15,19 +15,23 @@ window.__ModuleLoader__.load({
         nav: 'TodoList', title: 'TodoList', subtitle: 'A quiet wall for the things you want to finish.',
         pendingCount: '{count} pending', search: 'Search notes', all: 'All', pending: 'Pending', completed: 'Completed',
         unscheduled: 'Unscheduled', today: 'Today', tomorrow: 'Tomorrow', yesterday: 'Yesterday', emptyTitle: 'Your todo wall is ready', emptyBody: 'Use the + button to pin your first note.',
-        noResultsTitle: 'No matching notes', noResultsBody: 'Try another keyword or status.', addTitle: 'New todo', editTitle: 'Edit todo',
+        noResultsTitle: 'No matching notes', noResultsBody: 'Try another keyword, status, or time range.', addTitle: 'New todo', editTitle: 'Edit todo',
         taskTitle: 'Title', titlePlaceholder: 'What needs to be done?', location: 'Location', locationPlaceholder: 'Where will this happen?', time: 'Date & time', optional: 'Optional', color: 'Note color',
         create: 'Create note', save: 'Save changes', cancel: 'Cancel', remove: 'Delete', confirmRemove: 'Click again to delete', markCompleted: 'Mark completed', markPending: 'Mark pending',
         close: 'Close', overdue: 'Overdue', saved: 'Saved automatically',
+        timeFilter: 'Time range', anyTime: 'Any time', todayOnly: 'Today', nextSevenDays: 'Next 7 days', thisWeek: 'This week', thisMonth: 'This month', overdueOnly: 'Overdue',
+        customRange: 'Custom range', startDate: 'Start date', endDate: 'End date', applyRange: 'Apply', clearRange: 'Clear', invalidRange: 'Start date must not be after end date.', fromDate: 'From {date}', throughDate: 'Through {date}',
       },
       zh: {
         nav: 'TodoList', title: 'TodoList', subtitle: '把想完成的事情，轻轻贴在眼前。',
         pendingCount: '{count} 项待完成', search: '搜索便签', all: '全部', pending: '待完成', completed: '已完成',
         unscheduled: '未安排', today: '今天', tomorrow: '明天', yesterday: '昨天', emptyTitle: 'TodoList 还是空的', emptyBody: '点击右下角 +，贴上第一张待办便签。',
-        noResultsTitle: '没有匹配的便签', noResultsBody: '换个关键词或状态试试。', addTitle: '新增待办', editTitle: '编辑待办',
+        noResultsTitle: '没有匹配的便签', noResultsBody: '换个关键词、状态或时间范围试试。', addTitle: '新增待办', editTitle: '编辑待办',
         taskTitle: '标题', titlePlaceholder: '接下来要完成什么？', location: '地点', locationPlaceholder: '这件事在哪里进行？', time: '日期与时间', optional: '可选', color: '便签颜色',
         create: '贴上便签', save: '保存修改', cancel: '取消', remove: '删除', confirmRemove: '再次点击确认', markCompleted: '标记为已完成', markPending: '恢复为待完成',
         close: '关闭', overdue: '已逾期', saved: '自动保存',
+        timeFilter: '时间范围', anyTime: '全部时间', todayOnly: '今天', nextSevenDays: '未来 7 天', thisWeek: '本周', thisMonth: '本月', overdueOnly: '已逾期',
+        customRange: '自定义范围', startDate: '开始日期', endDate: '结束日期', applyRange: '应用', clearRange: '清除', invalidRange: '开始日期不能晚于结束日期。', fromDate: '从 {date}', throughDate: '截至 {date}',
       },
     };
 
@@ -165,6 +169,13 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M10 6.5v4l2.8 1.7', stroke: 'currentColor', strokeWidth: 1.45, strokeLinecap: 'round', strokeLinejoin: 'round' }));
     }
 
+    function CalendarIcon() {
+      return h('svg', { viewBox: '0 0 20 20', width: 16, height: 16, fill: 'none', 'aria-hidden': true },
+        h('rect', { x: 3.2, y: 4.4, width: 13.6, height: 12.2, rx: 2.2, stroke: 'currentColor', strokeWidth: 1.45 }),
+        h('path', { d: 'M6.5 2.8v3.1M13.5 2.8v3.1M3.4 8h13.2', stroke: 'currentColor', strokeWidth: 1.45, strokeLinecap: 'round' }),
+        h('path', { d: 'M6.4 10.8h.1M10 10.8h.1M13.5 10.8h.1M6.4 13.6h.1M10 13.6h.1', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' }));
+    }
+
     function dateKey(due) {
       return due && due.includes('T') ? due.slice(0, 10) : '';
     }
@@ -185,6 +196,51 @@ window.__ModuleLoader__.load({
       date.setHours(12, 0, 0, 0);
       date.setDate(date.getDate() + days);
       return localDateKey(date);
+    }
+
+    function presetDateRange(key) {
+      const today = new Date();
+      today.setHours(12, 0, 0, 0);
+      if (key === 'today') {
+        const value = localDateKey(today);
+        return { key, start: value, end: value };
+      }
+      if (key === 'next-seven') {
+        const end = new Date(today);
+        end.setDate(end.getDate() + 6);
+        return { key, start: localDateKey(today), end: localDateKey(end) };
+      }
+      if (key === 'week') {
+        const start = new Date(today);
+        start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+        const end = new Date(start);
+        end.setDate(end.getDate() + 6);
+        return { key, start: localDateKey(start), end: localDateKey(end) };
+      }
+      if (key === 'month') {
+        const start = new Date(today.getFullYear(), today.getMonth(), 1, 12);
+        const end = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12);
+        return { key, start: localDateKey(start), end: localDateKey(end) };
+      }
+      if (key === 'overdue') return { key, start: '', end: offsetLocalDateKey(-1) };
+      return { key: 'all', start: '', end: '' };
+    }
+
+    function matchesDateRange(todo, range) {
+      if (!range || range.key === 'all') return true;
+      const key = dateKey(todo.due);
+      if (!key) return false;
+      if (range.key === 'overdue' && todo.status !== 'pending') return false;
+      return (!range.start || key >= range.start) && (!range.end || key <= range.end);
+    }
+
+    function timeRangeLabel(range, copy) {
+      const labels = { today: copy.todayOnly, 'next-seven': copy.nextSevenDays, week: copy.thisWeek, month: copy.thisMonth, overdue: copy.overdueOnly };
+      if (!range || range.key === 'all') return copy.anyTime;
+      if (labels[range.key]) return labels[range.key];
+      if (range.start && range.end) return `${range.start} – ${range.end}`;
+      if (range.start) return copy.fromDate.replace('{date}', range.start);
+      return copy.throughDate.replace('{date}', range.end);
     }
 
     function formatGroupDate(key, locale, copy) {
@@ -236,6 +292,87 @@ window.__ModuleLoader__.load({
           return (b.updatedAt || 0) - (a.updatedAt || 0);
         }),
       }));
+    }
+
+    function TimeRangeFilter({ value, copy, onChange }) {
+      const [open, setOpen] = React.useState(false);
+      const [draftStart, setDraftStart] = React.useState('');
+      const [draftEnd, setDraftEnd] = React.useState('');
+      const rootRef = React.useRef(null);
+      const invalid = Boolean(draftStart && draftEnd && draftStart > draftEnd);
+      const active = value.key !== 'all';
+      const quickRanges = [
+        ['all', copy.anyTime],
+        ['today', copy.todayOnly],
+        ['next-seven', copy.nextSevenDays],
+        ['week', copy.thisWeek],
+        ['month', copy.thisMonth],
+        ['overdue', copy.overdueOnly],
+      ];
+
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const closeOutside = (event) => { if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false); };
+        const closeOnEscape = (event) => { if (event.key === 'Escape') setOpen(false); };
+        document.addEventListener('pointerdown', closeOutside);
+        window.addEventListener('keydown', closeOnEscape);
+        return () => {
+          document.removeEventListener('pointerdown', closeOutside);
+          window.removeEventListener('keydown', closeOnEscape);
+        };
+      }, [open]);
+
+      function toggle() {
+        if (!open) {
+          setDraftStart(value.key === 'custom' ? value.start : '');
+          setDraftEnd(value.key === 'custom' ? value.end : '');
+        }
+        setOpen((current) => !current);
+      }
+
+      function selectQuick(key) {
+        onChange(presetDateRange(key));
+        setOpen(false);
+      }
+
+      function applyCustom() {
+        if (invalid) return;
+        onChange(draftStart || draftEnd ? { key: 'custom', start: draftStart, end: draftEnd } : presetDateRange('all'));
+        setOpen(false);
+      }
+
+      function clear() {
+        setDraftStart('');
+        setDraftEnd('');
+        onChange(presetDateRange('all'));
+        setOpen(false);
+      }
+
+      return h('div', { className: 'todo-time-filter', ref: rootRef },
+        h('button', {
+          type: 'button',
+          className: `todo-time-trigger${active ? ' is-active' : ''}`,
+          onClick: toggle,
+          'aria-label': copy.timeFilter,
+          'aria-expanded': open,
+          'aria-haspopup': 'dialog',
+        }, h(CalendarIcon), h('span', null, timeRangeLabel(value, copy))),
+        open ? h('section', { className: 'todo-time-popover', role: 'dialog', 'aria-label': copy.timeFilter },
+          h('div', { className: 'todo-time-quick' }, quickRanges.map(([key, label]) => h('button', {
+            key,
+            type: 'button',
+            className: value.key === key ? 'is-active' : '',
+            onClick: () => selectQuick(key),
+          }, label))),
+          h('div', { className: 'todo-time-custom' },
+            h('strong', null, copy.customRange),
+            h('div', { className: 'todo-time-inputs' },
+              h('label', null, h('span', null, copy.startDate), h('input', { type: 'date', value: draftStart, max: draftEnd || undefined, onChange: (event) => setDraftStart(event.target.value) })),
+              h('label', null, h('span', null, copy.endDate), h('input', { type: 'date', value: draftEnd, min: draftStart || undefined, onChange: (event) => setDraftEnd(event.target.value) }))),
+            invalid ? h('p', { className: 'todo-time-error', role: 'alert' }, copy.invalidRange) : null,
+            h('footer', null,
+              h('button', { type: 'button', className: 'todo-time-clear', onClick: clear }, copy.clearRange),
+              h('button', { type: 'button', className: 'todo-time-apply', disabled: invalid, onClick: applyCustom }, copy.applyRange)))) : null);
     }
 
     function Modal({ mode, todo, copy, onClose }) {
@@ -334,9 +471,13 @@ window.__ModuleLoader__.load({
       const todos = useTodos();
       const [query, setQuery] = React.useState('');
       const [filter, setFilter] = React.useState('all');
+      const [timeRange, setTimeRange] = React.useState(() => presetDateRange('all'));
       const [modal, setModal] = React.useState(null);
       const word = query.trim().toLowerCase();
-      const visible = todos.filter((item) => (filter === 'all' || item.status === filter) && (!word || item.title.toLowerCase().includes(word) || item.location.toLowerCase().includes(word)));
+      const visible = todos.filter((item) =>
+        (filter === 'all' || item.status === filter)
+        && matchesDateRange(item, timeRange)
+        && (!word || item.title.toLowerCase().includes(word) || item.location.toLowerCase().includes(word)));
       const groups = groupTodos(visible);
       const pending = todos.filter((item) => item.status === 'pending').length;
       const empty = todos.length === 0;
@@ -351,6 +492,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'todo-header-actions' },
             h('span', { className: 'todo-pending-chip' }, copy.pendingCount.replace('{count}', String(pending))),
             h('div', { className: 'todo-search' }, h(SearchIcon), h('input', { value: query, onChange: (event) => setQuery(event.target.value), placeholder: copy.search, 'aria-label': copy.search }), query ? h('button', { type: 'button', onClick: () => setQuery(''), 'aria-label': copy.close }, '×') : null),
+            h(TimeRangeFilter, { value: timeRange, copy, onChange: setTimeRange }),
             h('div', { className: 'todo-filters' }, [['all', copy.all], ['pending', copy.pending], ['completed', copy.completed]].map(([value, label]) => h('button', { key: value, type: 'button', className: filter === value ? 'is-active' : '', onClick: () => setFilter(value) }, label))))),
         h('main', { className: 'todo-wall', 'aria-live': 'polite' },
           empty || noResults ? h('section', { className: 'todo-empty' },
@@ -377,6 +519,9 @@ window.__ModuleLoader__.load({
       .todo-header{position:sticky;top:0;z-index:8;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:25px 34px 20px;border-bottom:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsh-dream-skin-page-fill,var(--dsw-alias-bg-base)) 92%,transparent);backdrop-filter:blur(18px)}
       .todo-heading h1{margin:0;font-size:30px;line-height:1.05;letter-spacing:-.045em}.todo-heading p{margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px}.todo-header-actions{display:flex;align-items:center;gap:10px}.todo-pending-chip{white-space:nowrap;padding:7px 11px;border-radius:999px;background:color-mix(in srgb,#f29d36 14%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:650}
       .todo-search{display:flex;align-items:center;gap:7px;width:210px;height:35px;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}.todo-search input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}.todo-search button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font-size:18px;cursor:pointer}
+      .todo-time-filter{position:relative}.todo-time-trigger{display:flex;align-items:center;gap:7px;max-width:190px;height:35px;box-sizing:border-box;padding:0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer}.todo-time-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.todo-time-trigger.is-active{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 48%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 10%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font-weight:700}
+      .todo-time-popover{position:absolute;top:calc(100% + 9px);right:0;z-index:20;width:340px;box-sizing:border-box;padding:13px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 48px color-mix(in srgb,#000 22%,transparent)}.todo-time-quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.todo-time-quick button{min-height:34px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer}.todo-time-quick button:hover,.todo-time-quick button.is-active{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 45%,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 11%,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary)}
+      .todo-time-custom{margin-top:13px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1)}.todo-time-custom>strong{display:block;margin-bottom:10px;font-size:12px}.todo-time-inputs{display:grid;grid-template-columns:1fr 1fr;gap:9px}.todo-time-inputs label{display:flex;min-width:0;flex-direction:column;gap:6px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:650}.todo-time-inputs input{width:100%;height:37px;box-sizing:border-box;padding:0 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;color-scheme:light dark}.todo-time-error{margin:8px 0 0;color:#d0525e;font-size:10px}.todo-time-custom footer{display:flex;align-items:center;justify-content:space-between;margin-top:12px}.todo-time-clear,.todo-time-apply{height:32px;padding:0 12px;border-radius:8px;font:inherit;font-size:11px;font-weight:650;cursor:pointer}.todo-time-clear{border:0;background:transparent;color:var(--dsw-alias-label-secondary)}.todo-time-apply{border:0;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#5068ee));color:#fff}.todo-time-apply:disabled{cursor:not-allowed;opacity:.45}
       .todo-filters{display:flex;gap:3px;padding:3px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1)}.todo-filters button{height:29px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer}.todo-filters button.is-active{background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-weight:700}
       .todo-wall{width:min(1040px,calc(100% - 64px));margin:0 auto;padding:31px 0 100px}.todo-date-group{margin-bottom:31px}.todo-date-group>header{display:flex;align-items:center;gap:10px;margin-bottom:15px;border-bottom:1px solid var(--dsw-alias-border-l1)}.todo-date-group h2{margin:0 0 -1px;padding:0 2px 10px;border-bottom:2px solid color-mix(in srgb,var(--dsw-alias-label-primary) 58%,transparent);font-size:14px;letter-spacing:.01em}.todo-group-count{display:grid;place-items:center;width:18px;height:18px;box-sizing:border-box;margin-bottom:10px;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent);color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-size:9px;font-weight:650}
       .todo-note-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 21px;padding:2px 4px 0}.todo-note{--paper:#FFE7A3;position:relative;display:flex;min-height:132px;box-sizing:border-box;flex-direction:column;justify-content:flex-start;padding:18px;border:1px solid color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);border-radius:12px;background:var(--paper);color:#343743;box-shadow:0 9px 22px color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent),inset 0 1px rgba(255,255,255,.42);cursor:pointer;transform:rotate(var(--todo-tilt));transition:transform .18s ease,box-shadow .18s ease,opacity .18s ease}.todo-note:hover,.todo-note:focus-visible{z-index:2;transform:translateY(-4px) rotate(0);box-shadow:0 15px 30px color-mix(in srgb,var(--dsw-alias-label-primary) 13%,transparent);outline:none}.todo-note.color-rose{--paper:#FFD1DC}.todo-note.color-peach{--paper:#FFD7C2}.todo-note.color-apricot{--paper:#FFE0B5}.todo-note.color-lemon{--paper:#FFF3B0}.todo-note.color-sage{--paper:#DDE8C8}.todo-note.color-mint{--paper:#CBEEDD}.todo-note.color-aqua{--paper:#CDEFF2}.todo-note.color-sky{--paper:#CEE8FF}.todo-note.color-periwinkle{--paper:#D8DEFF}.todo-note.color-lilac{--paper:#E5D5FF}.todo-note.color-lavender{--paper:#EADFF5}.todo-note-heading{display:flex;align-items:flex-start;gap:8px;min-width:0}.todo-note h3{flex:1;min-width:0;margin:1px 0 0;font-size:16px;line-height:1.45;letter-spacing:0;overflow-wrap:anywhere}.todo-note.status-completed{filter:saturate(.76);opacity:.8}
@@ -387,7 +532,7 @@ window.__ModuleLoader__.load({
       .todo-modal form{display:flex;flex-direction:column;gap:15px;padding:10px 22px 21px}.todo-modal label,.todo-modal .todo-field{display:flex;flex-direction:column;gap:7px;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:650}.todo-modal input{height:44px;box-sizing:border-box;padding:0 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit}.todo-datetime-field,.todo-datetime-field input{cursor:pointer}.todo-modal fieldset{margin:0;padding:0;border:0}.todo-modal legend{margin-bottom:9px;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:650}.todo-color-picker{display:grid;grid-template-columns:repeat(6,28px);gap:9px}.todo-color-picker button{width:28px;height:28px;padding:0;border:2px solid transparent;border-radius:9px;background:#FFE7A3;cursor:pointer}.todo-color-picker button.color-rose{background:#FFD1DC}.todo-color-picker button.color-peach{background:#FFD7C2}.todo-color-picker button.color-apricot{background:#FFE0B5}.todo-color-picker button.color-lemon{background:#FFF3B0}.todo-color-picker button.color-sage{background:#DDE8C8}.todo-color-picker button.color-mint{background:#CBEEDD}.todo-color-picker button.color-aqua{background:#CDEFF2}.todo-color-picker button.color-sky{background:#CEE8FF}.todo-color-picker button.color-periwinkle{background:#D8DEFF}.todo-color-picker button.color-lilac{background:#E5D5FF}.todo-color-picker button.color-lavender{background:#EADFF5}.todo-color-picker button.is-selected{border-color:var(--dsw-alias-label-primary);box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-1) inset}.todo-modal footer{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:5px}.todo-modal footer>div{display:flex;align-items:center;gap:8px}.todo-primary,.todo-secondary,.todo-danger{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 14px;border-radius:10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}.todo-primary{border:0;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#5068ee));color:#fff}.todo-primary:disabled{opacity:.42;cursor:not-allowed}.todo-secondary{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.todo-danger{padding:0 9px;border:0;background:transparent;color:#d64955}.todo-danger:hover,.todo-danger.is-confirming{background:color-mix(in srgb,#d64955 10%,transparent)}
       button:focus-visible,input:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary,#5068ee));outline-offset:2px}
       @media(max-width:980px){.todo-header{align-items:flex-start;flex-direction:column}.todo-header-actions{width:100%;flex-wrap:wrap}.todo-search{flex:1;min-width:180px}.todo-wall{width:min(100% - 40px,820px)}.todo-note-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      @media(max-width:640px){.todo-header{padding:21px 20px 17px}.todo-heading h1{font-size:27px}.todo-pending-chip{display:none}.todo-filters{order:3}.todo-wall{width:calc(100% - 32px);padding-top:24px}.todo-note-grid{grid-template-columns:1fr;gap:15px}.todo-note{min-height:112px}.todo-fab{right:20px;bottom:20px;width:52px;height:52px}.todo-modal-backdrop{padding:14px}.todo-modal footer{align-items:stretch;flex-direction:column-reverse}.todo-modal footer>div{justify-content:flex-end;flex-wrap:wrap}.todo-danger{align-self:flex-start}}
+      @media(max-width:640px){.todo-header{padding:21px 20px 17px}.todo-heading h1{font-size:27px}.todo-pending-chip{display:none}.todo-search{order:1;flex-basis:100%}.todo-time-filter{order:2;min-width:140px;flex:1}.todo-time-trigger{width:100%;max-width:none}.todo-time-popover{right:auto;left:0;width:min(340px,calc(100vw - 40px))}.todo-filters{order:3}.todo-wall{width:calc(100% - 32px);padding-top:24px}.todo-note-grid{grid-template-columns:1fr;gap:15px}.todo-note{min-height:112px}.todo-fab{right:20px;bottom:20px;width:52px;height:52px}.todo-modal-backdrop{padding:14px}.todo-modal footer{align-items:stretch;flex-direction:column-reverse}.todo-modal footer>div{justify-content:flex-end;flex-wrap:wrap}.todo-danger{align-self:flex-start}}
     `;
 
     return {

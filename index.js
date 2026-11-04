@@ -1,2 +1,2 @@
-/** Host half of the Sticky Notes Wall bundle; the Client module owns the UI. */
+/** Host half of the TodoList bundle; the Client module owns the UI. */
 export function apply() {}
