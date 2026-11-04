@@ -1,0 +1,21 @@
+{
+  "name": "@local/todolist",
+  "version": "3.2.2",
+  "private": true,
+  "type": "module",
+  "description": "A pastel date-grouped TodoList with locations, full date-time details, quick creation, and a sidebar pending badge for DSH.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
