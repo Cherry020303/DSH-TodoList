@@ -165,6 +165,7 @@ DSH-TodoList/
 ├─ cordis.patch.yml   # 将 @local/todolist 插入 Cordis 组合
 ├─ icon.svg           # bundle 展示图标
 ├─ index.js           # Host 入口；当前为空实现，UI 由客户端模块提供
+├─ LICENSE            # MIT 开源许可证
 ├─ locale/
 │  ├─ en.json         # 英文 bundle 元数据
 │  └─ zh.json         # 中文 bundle 元数据
@@ -179,9 +180,12 @@ DSH-TodoList/
 - 日期和时间按浏览器本地时区解释和显示。
 - 旧版颜色名会映射到当前颜色集合，以保持历史数据兼容。
 
+## 许可证
+
+本项目采用 [MIT License](./LICENSE)。
+
 ## 注意事项
 
 - `package.json` 中的 `private: true` 表示当前项目未配置为 npm 公共包；GitHub 源码仓库不等同于 npm 或 DSH 插件市场发布。
 - 不要修改包名 `@local/todolist`、Cordis 插件 ID 或面板 ID，除非同时更新所有相关引用并重新安装插件。
 - 不要随意更改 `localStorage` 键名，否则现有用户数据将无法被当前版本读取。
-- 本仓库未声明许可证文件；在许可证明确之前，不应假定某种开源许可证条款。

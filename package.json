@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "description": "A pastel date-grouped TodoList with locations, time-range filtering, full date-time details, quick creation, and a sidebar pending badge for DSH.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cherry020303/DSH-TodoList.git"
+  },
+  "homepage": "https://github.com/Cherry020303/DSH-TodoList#readme",
+  "bugs": {
+    "url": "https://github.com/Cherry020303/DSH-TodoList/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
