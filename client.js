@@ -21,6 +21,7 @@ window.__ModuleLoader__.load({
         close: 'Close', overdue: 'Overdue', saved: 'Saved automatically',
         timeFilter: 'Time range', anyTime: 'Any time', todayOnly: 'Today', nextSevenDays: 'Next 7 days', thisWeek: 'This week', thisMonth: 'This month', overdueOnly: 'Overdue',
         customRange: 'Custom range', startDate: 'Start date', endDate: 'End date', applyRange: 'Apply', clearRange: 'Clear', invalidRange: 'Start date must not be after end date.', fromDate: 'From {date}', throughDate: 'Through {date}',
+        chooseDateTime: 'Choose date and time', previousMonth: 'Previous month', nextMonth: 'Next month', hour: 'Hour', minute: 'Minute', clearTime: 'Clear', confirmTime: 'Confirm',
       },
       zh: {
         nav: 'TodoList', title: 'TodoList', subtitle: '把想完成的事情，轻轻贴在眼前。',
@@ -32,6 +33,7 @@ window.__ModuleLoader__.load({
         close: '关闭', overdue: '已逾期', saved: '自动保存',
         timeFilter: '时间范围', anyTime: '全部时间', todayOnly: '今天', nextSevenDays: '未来 7 天', thisWeek: '本周', thisMonth: '本月', overdueOnly: '已逾期',
         customRange: '自定义范围', startDate: '开始日期', endDate: '结束日期', applyRange: '应用', clearRange: '清除', invalidRange: '开始日期不能晚于结束日期。', fromDate: '从 {date}', throughDate: '截至 {date}',
+        chooseDateTime: '选择日期和时间', previousMonth: '上个月', nextMonth: '下个月', hour: '小时', minute: '分钟', clearTime: '清除', confirmTime: '确认',
       },
     };
 
@@ -269,6 +271,38 @@ window.__ModuleLoader__.load({
       return new Intl.DateTimeFormat(locale || 'en', { year: 'numeric', month: 'short', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
     }
 
+    function parseLocalDateTime(value) {
+      const normalized = normalizeDue(value);
+      if (!normalized) return null;
+      const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(normalized);
+      if (!match) return null;
+      return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
+    }
+
+    function localDateTimeValue(date) {
+      return `${localDateKey(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    }
+
+    function calendarDays(viewMonth) {
+      const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1, 12);
+      const start = new Date(first);
+      start.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+      return Array.from({ length: 42 }, (_, index) => {
+        const date = new Date(start);
+        date.setDate(start.getDate() + index);
+        return date;
+      });
+    }
+
+    function weekdayLabels(locale) {
+      const monday = new Date(2024, 0, 1, 12);
+      return Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + index);
+        return new Intl.DateTimeFormat(locale || 'en', { weekday: 'narrow' }).format(date);
+      });
+    }
+
     function groupTodos(items) {
       const groups = new Map();
       items.forEach((todo) => {
@@ -375,12 +409,178 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'todo-time-apply', disabled: invalid, onClick: applyCustom }, copy.applyRange)))) : null);
     }
 
-    function Modal({ mode, todo, copy, onClose }) {
+    function DateTimePicker({ value, copy, locale, onChange }) {
+      const [open, setOpen] = React.useState(false);
+      const [pendingFocusKey, setPendingFocusKey] = React.useState('');
+      const [popoverLayout, setPopoverLayout] = React.useState({ above: false, maxHeight: 420 });
+      const [draft, setDraft] = React.useState(() => parseLocalDateTime(value) || new Date());
+      const [viewMonth, setViewMonth] = React.useState(() => {
+        const date = parseLocalDateTime(value) || new Date();
+        return new Date(date.getFullYear(), date.getMonth(), 1, 12);
+      });
+      const rootRef = React.useRef(null);
+      const triggerRef = React.useRef(null);
+      const dayRefs = React.useRef({});
+      const days = calendarDays(viewMonth);
+      const selectedKey = localDateKey(draft);
+      const todayKey = localTodayKey();
+      const selectedInView = days.some((date) => localDateKey(date) === selectedKey);
+      const focusKey = selectedInView ? selectedKey : localDateKey(new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1, 12));
+      const monthLabel = new Intl.DateTimeFormat(locale || 'en', { year: 'numeric', month: 'long' }).format(viewMonth);
+      const formattedValue = value ? formatTime(value, locale) : '';
+      const popoverId = 'todo-datetime-popover';
+
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const closeOutside = (event) => {
+          if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+        };
+        const closeOnEscape = (event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setOpen(false);
+          if (triggerRef.current) triggerRef.current.focus();
+        };
+        document.addEventListener('pointerdown', closeOutside);
+        window.addEventListener('keydown', closeOnEscape, true);
+        return () => {
+          document.removeEventListener('pointerdown', closeOutside);
+          window.removeEventListener('keydown', closeOnEscape, true);
+        };
+      }, [open]);
+
+      React.useEffect(() => {
+        if (!open || !pendingFocusKey || !dayRefs.current[pendingFocusKey]) return;
+        dayRefs.current[pendingFocusKey].focus();
+        setPendingFocusKey('');
+      }, [open, pendingFocusKey, viewMonth]);
+
+      function openPicker() {
+        const next = parseLocalDateTime(value) || new Date();
+        next.setSeconds(0, 0);
+        setDraft(next);
+        setViewMonth(new Date(next.getFullYear(), next.getMonth(), 1, 12));
+        setPendingFocusKey(localDateKey(next));
+        const bounds = rootRef.current ? rootRef.current.getBoundingClientRect() : null;
+        if (bounds) {
+          const below = Math.max(0, window.innerHeight - bounds.bottom - 16);
+          const above = Math.max(0, bounds.top - 16);
+          const openAbove = below < 360 && above > below;
+          const available = openAbove ? above : below;
+          setPopoverLayout({ above: openAbove, maxHeight: Math.max(140, Math.min(420, Math.floor(available))) });
+        }
+        setOpen(true);
+      }
+
+      function selectDate(date) {
+        const next = new Date(date.getFullYear(), date.getMonth(), date.getDate(), draft.getHours(), draft.getMinutes());
+        setDraft(next);
+        if (date.getMonth() !== viewMonth.getMonth() || date.getFullYear() !== viewMonth.getFullYear()) {
+          setPendingFocusKey(localDateKey(next));
+          setViewMonth(new Date(date.getFullYear(), date.getMonth(), 1, 12));
+        }
+      }
+
+      function moveSelection(event, date) {
+        const offsets = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+        if (!(event.key in offsets) && event.key !== 'Home' && event.key !== 'End') return;
+        event.preventDefault();
+        const next = new Date(date.getFullYear(), date.getMonth(), date.getDate(), draft.getHours(), draft.getMinutes());
+        if (event.key === 'Home') next.setDate(next.getDate() - ((next.getDay() + 6) % 7));
+        else if (event.key === 'End') next.setDate(next.getDate() + (7 - ((next.getDay() + 6) % 7) - 1));
+        else next.setDate(next.getDate() + offsets[event.key]);
+        setDraft(next);
+        setPendingFocusKey(localDateKey(next));
+        if (next.getMonth() !== viewMonth.getMonth() || next.getFullYear() !== viewMonth.getFullYear()) {
+          setViewMonth(new Date(next.getFullYear(), next.getMonth(), 1, 12));
+        }
+      }
+
+      function setTimePart(part, valueText) {
+        const next = new Date(draft);
+        if (part === 'hour') next.setHours(Number(valueText));
+        else next.setMinutes(Number(valueText));
+        setDraft(next);
+      }
+
+      function clear() {
+        onChange('');
+        setOpen(false);
+        if (triggerRef.current) triggerRef.current.focus();
+      }
+
+      function confirm() {
+        onChange(localDateTimeValue(draft));
+        setOpen(false);
+        if (triggerRef.current) triggerRef.current.focus();
+      }
+
+      return h('div', {
+        className: 'todo-field todo-datetime-field',
+        ref: rootRef,
+        onBlur: (event) => { if (open && !event.currentTarget.contains(event.relatedTarget)) setOpen(false); },
+      },
+        h('span', null, `${copy.time} · ${copy.optional}`),
+        h('button', {
+          ref: triggerRef,
+          type: 'button',
+          className: `todo-datetime-trigger${value ? ' has-value' : ''}`,
+          onClick: () => open ? setOpen(false) : openPicker(),
+          'aria-label': formattedValue ? `${copy.chooseDateTime}: ${formattedValue}` : copy.chooseDateTime,
+          'aria-expanded': open,
+          'aria-controls': popoverId,
+          'aria-haspopup': 'dialog',
+        }, h('span', null, formattedValue || copy.chooseDateTime), h(CalendarIcon)),
+        open ? h('section', {
+          id: popoverId,
+          className: `todo-datetime-popover${popoverLayout.above ? ' is-above' : ''}`,
+          style: { maxHeight: `${popoverLayout.maxHeight}px` },
+          role: 'dialog',
+          'aria-label': copy.chooseDateTime,
+        },
+          h('header', { className: 'todo-picker-header' },
+            h('strong', null, monthLabel),
+            h('div', null,
+              h('button', { type: 'button', onClick: () => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1, 12)), 'aria-label': copy.previousMonth }, '‹'),
+              h('button', { type: 'button', onClick: () => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1, 12)), 'aria-label': copy.nextMonth }, '›'))),
+          h('div', { className: 'todo-picker-weekdays', 'aria-hidden': true }, weekdayLabels(locale).map((label, index) => h('span', { key: `${label}-${index}` }, label))),
+          h('div', { className: 'todo-picker-grid' }, days.map((date) => {
+            const key = localDateKey(date);
+            const outside = date.getMonth() !== viewMonth.getMonth();
+            return h('button', {
+              key,
+              ref: (node) => { if (node) dayRefs.current[key] = node; else delete dayRefs.current[key]; },
+              type: 'button',
+              tabIndex: key === focusKey ? 0 : -1,
+              className: `${outside ? 'is-outside ' : ''}${key === todayKey ? 'is-today ' : ''}${key === selectedKey ? 'is-selected' : ''}`.trim(),
+              onClick: () => selectDate(date),
+              onKeyDown: (event) => moveSelection(event, date),
+              'aria-label': new Intl.DateTimeFormat(locale || 'en', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(date),
+              'aria-pressed': key === selectedKey,
+              'aria-current': key === todayKey ? 'date' : undefined,
+            }, date.getDate());
+          })),
+          h('footer', { className: 'todo-picker-footer' },
+            h('button', { type: 'button', className: 'todo-picker-clear', onClick: clear }, copy.clearTime),
+            h('div', { className: 'todo-picker-time' },
+              h('select', { value: String(draft.getHours()).padStart(2, '0'), onChange: (event) => setTimePart('hour', event.target.value), 'aria-label': copy.hour }, Array.from({ length: 24 }, (_, hour) => {
+                const label = String(hour).padStart(2, '0');
+                return h('option', { key: label, value: label }, label);
+              })),
+              h('span', { 'aria-hidden': true }, ':'),
+              h('select', { value: String(draft.getMinutes()).padStart(2, '0'), onChange: (event) => setTimePart('minute', event.target.value), 'aria-label': copy.minute }, Array.from({ length: 60 }, (_, minute) => {
+                const label = String(minute).padStart(2, '0');
+                return h('option', { key: label, value: label }, label);
+              })),
+              h('button', { type: 'button', className: 'todo-picker-confirm', onClick: confirm }, copy.confirmTime)))) : null);
+    }
+
+    function Modal({ mode, todo, copy, locale, onClose }) {
       const isEdit = mode === 'edit' && todo;
       const [title, setTitle] = React.useState(isEdit ? todo.title : '');
       const [location, setLocation] = React.useState(isEdit ? todo.location : '');
       const [due, setDue] = React.useState(isEdit ? todo.due : '');
-      const timeInputRef = React.useRef(null);
       const [color, setColor] = React.useState(isEdit ? todo.color : NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)]);
       const [confirmDelete, setConfirmDelete] = React.useState(false);
 
@@ -389,13 +589,6 @@ window.__ModuleLoader__.load({
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
       }, [onClose]);
-
-      function openTimePicker() {
-        const input = timeInputRef.current;
-        if (!input) return;
-        input.focus();
-        if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch {} }
-      }
 
       function submit(event) {
         event.preventDefault();
@@ -431,7 +624,7 @@ window.__ModuleLoader__.load({
           h('form', { onSubmit: submit },
             h('label', null, h('span', null, copy.taskTitle), h('input', { value: title, onChange: (event) => setTitle(event.target.value), placeholder: copy.titlePlaceholder, autoFocus: true })),
             h('label', null, h('span', null, `${copy.location} · ${copy.optional}`), h('input', { value: location, onChange: (event) => setLocation(event.target.value), placeholder: copy.locationPlaceholder })),
-            h('div', { className: 'todo-field todo-datetime-field', onClick: (event) => { if (event.target !== timeInputRef.current) openTimePicker(); } }, h('span', null, `${copy.time} · ${copy.optional}`), h('input', { ref: timeInputRef, type: 'datetime-local', value: due, onClick: (event) => { event.preventDefault(); event.stopPropagation(); openTimePicker(); }, onChange: (event) => setDue(event.target.value) })),
+            h(DateTimePicker, { value: due, copy, locale, onChange: setDue }),
             h('fieldset', null, h('legend', null, copy.color), h('div', { className: 'todo-color-picker' }, NOTE_COLORS.map((value) => h('button', { key: value, type: 'button', className: `color-${value}${color === value ? ' is-selected' : ''}`, onClick: () => setColor(value), 'aria-label': value })))),
             h('footer', null,
               isEdit ? h('button', { type: 'button', className: `todo-danger${confirmDelete ? ' is-confirming' : ''}`, onClick: remove }, h(TrashIcon), confirmDelete ? copy.confirmRemove : copy.remove) : h('span'),
@@ -502,7 +695,7 @@ window.__ModuleLoader__.load({
               h('header', null, h('h2', null, formatGroupDate(group.key, locale, copy)), h('span', { className: 'todo-group-count' }, group.todos.length)),
               h('div', { className: 'todo-note-grid' }, group.todos.map((todo) => h(NoteCard, { key: todo.id, todo, copy, locale, onEdit: (item) => setModal({ mode: 'edit', todo: item }) })))))),
         h('button', { type: 'button', className: 'todo-fab', onClick: () => setModal({ mode: 'create', todo: null }), 'aria-label': copy.addTitle }, h('span', null, '+')),
-        modal ? h(Modal, { key: modal.todo ? modal.todo.id : 'create', mode: modal.mode, todo: modal.todo, copy, onClose: () => setModal(null) }) : null);
+        modal ? h(Modal, { key: modal.todo ? modal.todo.id : 'create', mode: modal.mode, todo: modal.todo, copy, locale, onClose: () => setModal(null) }) : null);
     }
 
     const ICON_CSS = `
@@ -529,10 +722,11 @@ window.__ModuleLoader__.load({
       .todo-fab{position:fixed;right:32px;bottom:28px;z-index:9;display:grid;place-items:center;width:56px;height:56px;padding:0;border:0;border-radius:50%;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#5068ee));color:#fff;box-shadow:0 13px 30px color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 32%,transparent);cursor:pointer;transition:transform .16s ease,box-shadow .16s ease}.todo-fab:hover{transform:translateY(-3px) scale(1.03);box-shadow:0 17px 34px color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 38%,transparent)}.todo-fab span{font-size:31px;font-weight:300;line-height:1}
       .todo-empty{display:flex;min-height:410px;flex-direction:column;align-items:center;justify-content:center;text-align:center}.todo-empty-note{display:flex;width:152px;min-height:118px;box-sizing:border-box;flex-direction:column;align-items:center;justify-content:center;padding:20px;border-radius:8px 15px 10px 14px;background:color-mix(in srgb,#f6d269 30%,var(--dsw-alias-bg-layer-1));box-shadow:0 10px 24px color-mix(in srgb,var(--dsw-alias-label-primary) 9%,transparent);transform:rotate(-2deg)}.todo-empty-note span{font-size:30px;font-weight:300}.todo-empty-note strong{margin-top:8px;font-size:13px}.todo-empty p{margin:22px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px}
       .todo-modal-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:24px;background:color-mix(in srgb,#10131c 42%,transparent);backdrop-filter:blur(5px)}.todo-modal{width:min(470px,100%);max-height:calc(100vh - 48px);overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:19px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 28px 80px rgba(0,0,0,.26)}.todo-modal>header{display:flex;align-items:center;justify-content:space-between;padding:21px 22px 12px}.todo-modal>header>div{display:flex;align-items:center;gap:10px}.todo-modal h2{margin:0;font-size:19px}.todo-paper-dot{width:11px;height:11px;border-radius:3px;background:#FFE7A3}.todo-paper-dot.color-rose{background:#FFD1DC}.todo-paper-dot.color-peach{background:#FFD7C2}.todo-paper-dot.color-apricot{background:#FFE0B5}.todo-paper-dot.color-lemon{background:#FFF3B0}.todo-paper-dot.color-sage{background:#DDE8C8}.todo-paper-dot.color-mint{background:#CBEEDD}.todo-paper-dot.color-aqua{background:#CDEFF2}.todo-paper-dot.color-sky{background:#CEE8FF}.todo-paper-dot.color-periwinkle{background:#D8DEFF}.todo-paper-dot.color-lilac{background:#E5D5FF}.todo-paper-dot.color-lavender{background:#EADFF5}.todo-modal-close{width:32px;height:32px;border:0;border-radius:9px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:23px;cursor:pointer}.todo-modal-close:hover{background:var(--dsw-alias-bg-layer-2)}
-      .todo-modal form{display:flex;flex-direction:column;gap:15px;padding:10px 22px 21px}.todo-modal label,.todo-modal .todo-field{display:flex;flex-direction:column;gap:7px;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:650}.todo-modal input{height:44px;box-sizing:border-box;padding:0 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit}.todo-datetime-field,.todo-datetime-field input{cursor:pointer}.todo-modal fieldset{margin:0;padding:0;border:0}.todo-modal legend{margin-bottom:9px;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:650}.todo-color-picker{display:grid;grid-template-columns:repeat(6,28px);gap:9px}.todo-color-picker button{width:28px;height:28px;padding:0;border:2px solid transparent;border-radius:9px;background:#FFE7A3;cursor:pointer}.todo-color-picker button.color-rose{background:#FFD1DC}.todo-color-picker button.color-peach{background:#FFD7C2}.todo-color-picker button.color-apricot{background:#FFE0B5}.todo-color-picker button.color-lemon{background:#FFF3B0}.todo-color-picker button.color-sage{background:#DDE8C8}.todo-color-picker button.color-mint{background:#CBEEDD}.todo-color-picker button.color-aqua{background:#CDEFF2}.todo-color-picker button.color-sky{background:#CEE8FF}.todo-color-picker button.color-periwinkle{background:#D8DEFF}.todo-color-picker button.color-lilac{background:#E5D5FF}.todo-color-picker button.color-lavender{background:#EADFF5}.todo-color-picker button.is-selected{border-color:var(--dsw-alias-label-primary);box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-1) inset}.todo-modal footer{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:5px}.todo-modal footer>div{display:flex;align-items:center;gap:8px}.todo-primary,.todo-secondary,.todo-danger{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 14px;border-radius:10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}.todo-primary{border:0;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#5068ee));color:#fff}.todo-primary:disabled{opacity:.42;cursor:not-allowed}.todo-secondary{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.todo-danger{padding:0 9px;border:0;background:transparent;color:#d64955}.todo-danger:hover,.todo-danger.is-confirming{background:color-mix(in srgb,#d64955 10%,transparent)}
-      button:focus-visible,input:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary,#5068ee));outline-offset:2px}
+      .todo-modal form{display:flex;flex-direction:column;gap:15px;padding:10px 22px 21px}.todo-modal label,.todo-modal .todo-field{display:flex;flex-direction:column;gap:7px;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:650}.todo-modal input{height:44px;box-sizing:border-box;padding:0 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit}.todo-datetime-field{position:relative}.todo-datetime-trigger{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;height:44px;box-sizing:border-box;padding:0 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;text-align:left;cursor:pointer}.todo-datetime-trigger>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.todo-datetime-trigger.has-value{color:var(--dsw-alias-label-primary)}.todo-datetime-trigger:hover{border-color:var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 4%,var(--dsw-alias-bg-layer-2))}.todo-datetime-trigger[aria-expanded=true]{border-color:var(--dsw-alias-brand-primary,#5068ee);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 14%,transparent)}.todo-datetime-popover{position:absolute;top:calc(100% + 8px);left:0;z-index:12;width:min(388px,100%);max-height:min(420px,calc(100vh - 96px));box-sizing:border-box;overflow:auto;overscroll-behavior:contain;padding:14px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-overlay,var(--dsw-alias-bg-layer-1));box-shadow:0 20px 48px color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);color:var(--dsw-alias-label-primary);font-weight:400}.todo-datetime-popover.is-above{top:auto;bottom:calc(100% + 8px)}.todo-picker-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.todo-picker-header strong{font-size:14px;font-weight:700}.todo-picker-header>div{display:flex;gap:6px}.todo-picker-header button{display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:20px;line-height:1;cursor:pointer}.todo-picker-header button:hover{border-color:var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#5068ee) 8%,var(--dsw-alias-bg-layer-2))}.todo-picker-weekdays,.todo-picker-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.todo-picker-weekdays{margin-bottom:4px}.todo-picker-weekdays span{display:grid;place-items:center;height:28px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:700}.todo-picker-grid button{position:relative;display:grid;place-items:center;min-width:0;height:36px;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}.todo-picker-grid button:hover{background:var(--dsw-alias-bg-layer-2)}.todo-picker-grid button.is-outside{color:var(--dsw-alias-label-secondary);opacity:.48}.todo-picker-grid button.is-today:not(.is-selected)::after{position:absolute;bottom:3px;width:3px;height:3px;border-radius:50%;background:var(--dsw-alias-brand-primary,#5068ee);content:''}.todo-picker-grid button.is-selected{border-color:var(--dsw-alias-brand-primary,#5068ee);background:var(--dsw-alias-brand-primary,#5068ee);color:#fff;font-weight:700}.todo-picker-grid button.is-selected:hover{background:var(--dsw-alias-brand-primary,#5068ee)}.todo-picker-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1)}.todo-picker-clear{height:36px;padding:0 5px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer}.todo-picker-clear:hover{color:var(--dsw-alias-label-primary)}.todo-picker-time{display:flex;align-items:center;gap:6px}.todo-picker-time select{width:68px;height:36px;box-sizing:border-box;padding:0 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;color-scheme:light dark}.todo-picker-confirm{height:36px;padding:0 13px;border:0;border-radius:8px;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#5068ee));color:#fff;font:inherit;font-size:11px;font-weight:700;cursor:pointer}.todo-modal fieldset{margin:0;padding:0;border:0}.todo-modal legend{margin-bottom:9px;color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:650}.todo-color-picker{display:grid;grid-template-columns:repeat(6,28px);gap:9px}.todo-color-picker button{width:28px;height:28px;padding:0;border:2px solid transparent;border-radius:9px;background:#FFE7A3;cursor:pointer}.todo-color-picker button.color-rose{background:#FFD1DC}.todo-color-picker button.color-peach{background:#FFD7C2}.todo-color-picker button.color-apricot{background:#FFE0B5}.todo-color-picker button.color-lemon{background:#FFF3B0}.todo-color-picker button.color-sage{background:#DDE8C8}.todo-color-picker button.color-mint{background:#CBEEDD}.todo-color-picker button.color-aqua{background:#CDEFF2}.todo-color-picker button.color-sky{background:#CEE8FF}.todo-color-picker button.color-periwinkle{background:#D8DEFF}.todo-color-picker button.color-lilac{background:#E5D5FF}.todo-color-picker button.color-lavender{background:#EADFF5}.todo-color-picker button.is-selected{border-color:var(--dsw-alias-label-primary);box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-1) inset}.todo-modal form>footer{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:5px}.todo-modal form>footer>div{display:flex;align-items:center;gap:8px}.todo-primary,.todo-secondary,.todo-danger{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 14px;border-radius:10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}.todo-primary{border:0;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#5068ee));color:#fff}.todo-primary:disabled{opacity:.42;cursor:not-allowed}.todo-secondary{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.todo-danger{padding:0 9px;border:0;background:transparent;color:#d64955}.todo-danger:hover,.todo-danger.is-confirming{background:color-mix(in srgb,#d64955 10%,transparent)}
+      button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary,#5068ee));outline-offset:2px}
       @media(max-width:980px){.todo-header{align-items:flex-start;flex-direction:column}.todo-header-actions{width:100%;flex-wrap:wrap}.todo-search{flex:1;min-width:180px}.todo-wall{width:min(100% - 40px,820px)}.todo-note-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      @media(max-width:640px){.todo-header{padding:21px 20px 17px}.todo-heading h1{font-size:27px}.todo-pending-chip{display:none}.todo-search{order:1;flex-basis:100%}.todo-time-filter{order:2;min-width:140px;flex:1}.todo-time-trigger{width:100%;max-width:none}.todo-time-popover{right:auto;left:0;width:min(340px,calc(100vw - 40px))}.todo-filters{order:3}.todo-wall{width:calc(100% - 32px);padding-top:24px}.todo-note-grid{grid-template-columns:1fr;gap:15px}.todo-note{min-height:112px}.todo-fab{right:20px;bottom:20px;width:52px;height:52px}.todo-modal-backdrop{padding:14px}.todo-modal footer{align-items:stretch;flex-direction:column-reverse}.todo-modal footer>div{justify-content:flex-end;flex-wrap:wrap}.todo-danger{align-self:flex-start}}
+      @media(max-width:640px){.todo-header{padding:21px 20px 17px}.todo-heading h1{font-size:27px}.todo-pending-chip{display:none}.todo-search{order:1;flex-basis:100%}.todo-time-filter{order:2;min-width:140px;flex:1}.todo-time-trigger{width:100%;max-width:none}.todo-time-popover{right:auto;left:0;width:min(340px,calc(100vw - 40px))}.todo-filters{order:3}.todo-wall{width:calc(100% - 32px);padding-top:24px}.todo-note-grid{grid-template-columns:1fr;gap:15px}.todo-note{min-height:112px}.todo-fab{right:20px;bottom:20px;width:52px;height:52px}.todo-modal-backdrop{padding:14px}.todo-modal form>footer{align-items:stretch;flex-direction:column-reverse}.todo-modal form>footer>div{justify-content:flex-end;flex-wrap:wrap}.todo-danger{align-self:flex-start}}
+      @media(max-width:360px){.todo-picker-footer{align-items:stretch;flex-direction:column}.todo-picker-clear{align-self:flex-start}.todo-picker-time{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);width:100%}.todo-picker-time select{width:100%}.todo-picker-confirm{grid-column:1/-1}}
     `;
 
     return {
